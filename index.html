@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Bounty</title>
     <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
     <style>
@@ -9,16 +10,18 @@
         .coins { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; max-width: 500px; margin: 20px auto; }
         .coin { width: 70px; height: 70px; border-radius: 50%; background: #34d399; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; transition: 0.2s; }
         .coin.collected { opacity: 0.2; pointer-events: none; filter: grayscale(1); }
-        .btn { background: #facc15; color: #000; border: none; padding: 14px 36px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; display: none; margin-top: 20px; }
+        .btn-connect { background: #3a3a4a; color: #fff; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; margin: 10px; }
+        .btn-claim { background: #facc15; color: #000; border: none; padding: 14px 36px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; display: none; margin-top: 20px; }
         #status { margin-top: 16px; color: #aaa; font-size: 14px; }
     </style>
 </head>
 <body>
     <h1>AR Bounty</h1>
     <div>Собрано: <span id="score">0</span> / 10</div>
+    <button class="btn-connect" onclick="connectManually()">🦊 Подключить MetaMask</button>
     <div class="coins" id="board"></div>
-    <button class="btn" id="claimBtn" onclick="claimAll()">Забрать всё!</button>
-    <div id="status">Инициализация...</div>
+    <button class="btn-claim" id="claimBtn" onclick="claimAll()">Забрать всё!</button>
+    <div id="status">Нажмите кнопку выше для подключения</div>
 
 <script>
     const CONTRACT = "0x5e3b652F8Ef29d50F32Ae2D69920651d10D0227b";
@@ -36,55 +39,63 @@
         "0x64656d6f5f303130000000000000000000000000000000000000000000000000"
     ];
 
-    let collected = 0, ids = [], signer, contract;
+    let signer, contract;
+    let collected = 0, ids = [];
 
-    window.onload = () => {
+    window.onload = function() {
+        const board = document.getElementById('board');
         IDS.forEach((id, i) => {
-            let c = document.createElement('div');
+            const c = document.createElement('div');
             c.className = 'coin';
             c.innerText = i + 1;
             c.dataset.id = id;
-            c.onclick = () => pick(c);
-            document.getElementById('board').appendChild(c);
+            c.onclick = function() { pick(this); };
+            board.appendChild(c);
         });
-        connect();
     };
 
-    async function connect() {
+    async function connectManually() {
         try {
-            let p = new ethers.providers.Web3Provider(window.ethereum);
-            await p.send("eth_requestAccounts", []);
-            signer = p.getSigner();
+            if (!window.ethereum) throw new Error("MetaMask не найден");
+            await window.ethereum.request({ method: 'eth_requestAccounts' });
+            const provider = new ethers.providers.Web3Provider(window.ethereum);
+            signer = provider.getSigner();
             contract = new ethers.Contract(CONTRACT, ABI, signer);
-            document.getElementById('status').innerText = "✅ Подключено";
-        } catch { document.getElementById('status').innerText = "⚠️ Подключите MetaMask"; }
+            document.getElementById('status').innerText = "✅ Подключено! Теперь собирайте монеты.";
+            document.querySelector('.btn-connect').style.display = 'none';
+        } catch (e) {
+            document.getElementById('status').innerText = "❌ " + e.message;
+        }
     }
 
     function pick(el) {
+        if (!contract) { document.getElementById('status').innerText = "Сначала нажмите кнопку подключения!"; return; }
         if (el.classList.contains('collected')) return;
         el.classList.add('collected');
-        collected++; ids.push(el.dataset.id);
+        collected++;
+        ids.push(el.dataset.id);
         document.getElementById('score').innerText = collected;
         if (collected === 10) {
             document.getElementById('claimBtn').style.display = 'inline-block';
-            document.getElementById('status').innerText = "Готово!";
+            document.getElementById('status').innerText = "Все собраны! Жмите кнопку.";
         }
     }
 
     async function claimAll() {
-        let btn = document.getElementById('claimBtn');
-        btn.disabled = true; btn.innerText = "⏳";
-        for (let id of ids) {
+        const btn = document.getElementById('claimBtn');
+        btn.disabled = true; btn.innerText = "⏳...";
+        for (let i = 0; i < ids.length; i++) {
             try {
-                let tx = await contract.claim(id);
+                document.getElementById('status').innerText = `Клейм ${i+1}/10`;
+                const tx = await contract.claim(ids[i]);
                 await tx.wait();
             } catch (e) {
-                document.getElementById('status').innerText = "❌ Ошибка: " + e.message;
+                document.getElementById('status').innerHTML = "❌ Ошибка: " + e.message;
                 btn.disabled = false; btn.innerText = "Забрать всё!"; return;
             }
         }
-        document.getElementById('status').innerText = "🎉 УСПЕШНО!";
-        btn.innerText = "✅ Всё!";
+        document.getElementById('status').innerHTML = "✅ ВСЕ 10 USDC ПОЛУЧЕНЫ!";
+        btn.innerText = "✅ Готово!";
     }
 </script>
 </body>
