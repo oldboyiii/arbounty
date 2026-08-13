@@ -2,29 +2,27 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Bounty Clicker</title>
+    <title>AR Bounty</title>
     <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
     <style>
-        body { font-family: system-ui; text-align: center; background: #0a0a0f; color: #fff; padding: 20px; margin: 0; }
-        .game { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; max-width: 600px; margin: 20px auto; }
-        .coin { width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #34d399, #0e7a4b); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .coin:hover { transform: scale(1.1); }
-        .coin.collected { opacity: 0.2; transform: scale(0.8); pointer-events: none; filter: grayscale(1); }
-        .status { margin: 10px 0 20px; color: #8a8a9a; }
-        .btn-claim { background: #facc15; color: #000; border: none; padding: 15px 40px; font-size: 18px; font-weight: bold; border-radius: 10px; cursor: pointer; display: none; margin-top: 20px; }
-        #log { margin-top: 15px; font-size: 14px; color: #aaa; }
+        body { background: #0a0a0f; color: #fff; font-family: system-ui; text-align: center; padding: 20px; }
+        .coins { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; max-width: 500px; margin: 20px auto; }
+        .coin { width: 70px; height: 70px; border-radius: 50%; background: #34d399; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .coin.collected { opacity: 0.2; pointer-events: none; filter: grayscale(1); }
+        .btn { background: #facc15; color: #000; border: none; padding: 14px 36px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; display: none; margin-top: 20px; }
+        #status { margin-top: 16px; color: #aaa; font-size: 14px; }
     </style>
 </head>
 <body>
-    <h1>AR Bounty Clicker</h1>
-    <div class="status">Собрано: <span id="score">0</span> / 10</div>
-    <div class="game" id="gameBoard"></div>
-    <button class="btn-claim" id="claimBtn" onclick="startClaiming()">Забрать все!</button>
-    <div id="log">Подключите MetaMask</div>
+    <h1>AR Bounty</h1>
+    <div>Собрано: <span id="score">0</span> / 10</div>
+    <div class="coins" id="board"></div>
+    <button class="btn" id="claimBtn" onclick="claimAll()">Забрать всё!</button>
+    <div id="status">Инициализация...</div>
 
 <script>
     const CONTRACT = "0x5e3b652F8Ef29d50F32Ae2D69920651d10D0227b";
+    const ABI = ["function claim(bytes32 bountyId) external"];
     const IDS = [
         "0x64656d6f5f303031000000000000000000000000000000000000000000000000",
         "0x64656d6f5f303032000000000000000000000000000000000000000000000000",
@@ -37,65 +35,56 @@
         "0x64656d6f5f303039000000000000000000000000000000000000000000000000",
         "0x64656d6f5f303130000000000000000000000000000000000000000000000000"
     ];
-    const ABI = ["function claim(bytes32 bountyId) external"];
-    let signer, contract;
-    let collected = 0;
-    let collectedIds = [];
 
-    window.onload = function() {
-        const board = document.getElementById('gameBoard');
+    let collected = 0, ids = [], signer, contract;
+
+    window.onload = () => {
         IDS.forEach((id, i) => {
-            const c = document.createElement('div');
+            let c = document.createElement('div');
             c.className = 'coin';
             c.innerText = i + 1;
             c.dataset.id = id;
-            c.onclick = function() { collect(this); };
-            board.appendChild(c);
+            c.onclick = () => pick(c);
+            document.getElementById('board').appendChild(c);
         });
         connect();
     };
 
     async function connect() {
-        if (!window.ethereum) { document.getElementById('log').innerText = "Нет MetaMask"; return; }
         try {
-            await window.ethereum.request({ method: 'eth_requestAccounts' });
-            const provider = new ethers.providers.Web3Provider(window.ethereum);
-            signer = provider.getSigner();
+            let p = new ethers.providers.Web3Provider(window.ethereum);
+            await p.send("eth_requestAccounts", []);
+            signer = p.getSigner();
             contract = new ethers.Contract(CONTRACT, ABI, signer);
-            document.getElementById('log').innerText = "Подключено";
-        } catch(e) { document.getElementById('log').innerText = "Ошибка подключения"; }
+            document.getElementById('status').innerText = "✅ Подключено";
+        } catch { document.getElementById('status').innerText = "⚠️ Подключите MetaMask"; }
     }
 
-    function collect(el) {
+    function pick(el) {
         if (el.classList.contains('collected')) return;
         el.classList.add('collected');
-        collected++;
-        collectedIds.push(el.dataset.id);
+        collected++; ids.push(el.dataset.id);
         document.getElementById('score').innerText = collected;
-        document.getElementById('log').innerText = "Монета " + collected + " собрана";
         if (collected === 10) {
             document.getElementById('claimBtn').style.display = 'inline-block';
-            document.getElementById('log').innerText = "Все собраны! Жми!";
+            document.getElementById('status').innerText = "Готово!";
         }
     }
 
-    async function startClaiming() {
-        const btn = document.getElementById('claimBtn');
-        if (!contract) { document.getElementById('log').innerText = "Ошибка контракта"; return; }
-        btn.disabled = true; btn.innerText = "Отправка...";
-        for (let i = 0; i < collectedIds.length; i++) {
+    async function claimAll() {
+        let btn = document.getElementById('claimBtn');
+        btn.disabled = true; btn.innerText = "⏳";
+        for (let id of ids) {
             try {
-                document.getElementById('log').innerText = "Клейм " + (i+1);
-                const tx = await contract.claim(collectedIds[i]);
+                let tx = await contract.claim(id);
                 await tx.wait();
             } catch (e) {
-                document.getElementById('log').innerHTML = "Ошибка: " + e.message;
-                btn.disabled = false; btn.innerText = "Забрать все!";
-                return;
+                document.getElementById('status').innerText = "❌ Ошибка: " + e.message;
+                btn.disabled = false; btn.innerText = "Забрать всё!"; return;
             }
         }
-        document.getElementById('log').innerHTML = "ВСЕ USDC ПОЛУЧЕНЫ!";
-        btn.innerText = "Готово!";
+        document.getElementById('status').innerText = "🎉 УСПЕШНО!";
+        btn.innerText = "✅ Всё!";
     }
 </script>
 </body>
