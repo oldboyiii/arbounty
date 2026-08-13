@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Bounty</title>
-    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+    <!-- НАДЕЖНЫЙ CDN вместо cdn.ethers.io -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <style>
         body { background: #0a0a0f; color: #fff; font-family: system-ui, sans-serif; text-align: center; padding: 20px; margin: 0; }
         h1 { margin-bottom: 5px; }
@@ -53,6 +54,12 @@
     let collected = 0, ids = [];
 
     window.onload = function() {
+        // Проверяем, загрузился ли ethers
+        if (typeof ethers === 'undefined') {
+            document.getElementById('status').innerHTML = "❌ Библиотека не загрузилась. Обновите страницу (Ctrl+F5).";
+            return;
+        }
+        
         const board = document.getElementById('board');
         IDS.forEach((id, i) => {
             const c = document.createElement('div');
@@ -68,55 +75,50 @@
         const status = document.getElementById('status');
         const netWarn = document.getElementById('netWarn');
         
+        if (typeof ethers === 'undefined') {
+            status.innerText = "❌ Ошибка загрузки библиотеки. Обновите страницу.";
+            return;
+        }
+        
         try {
             if (!window.ethereum) {
-                status.innerHTML = "❌ MetaMask не найден. Установите расширение.";
+                status.innerHTML = "❌ MetaMask не найден.";
                 return;
             }
             
-            // Запрашиваем доступ к аккаунтам
             await window.ethereum.request({ method: 'eth_requestAccounts' });
             
             provider = new ethers.providers.Web3Provider(window.ethereum, "any");
             signer = provider.getSigner();
             
-            // Проверяем сеть
             const network = await provider.getNetwork();
             if (network.chainId !== ARC_CHAIN_ID) {
                 status.innerText = "⚠️ Неверная сеть!";
                 netWarn.style.display = 'block';
                 
-                // Пробуем переключить пользователя
                 try {
                     await window.ethereum.request({
                         method: 'wallet_switchEthereumChain',
                         params: [{ chainId: '0x' + ARC_CHAIN_ID.toString(16) }]
                     });
                 } catch (switchError) {
-                    // Если сети нет в MetaMask — добавляем
                     if (switchError.code === 4902) {
-                        try {
-                            await window.ethereum.request({
-                                method: 'wallet_addEthereumChain',
-                                params: [{
-                                    chainId: '0x' + ARC_CHAIN_ID.toString(16),
-                                    chainName: 'Arc Testnet',
-                                    rpcUrls: [ARC_RPC],
-                                    nativeCurrency: { name: 'ARC', symbol: 'ARC', decimals: 18 },
-                                    blockExplorerUrls: ['https://testnet.arcscan.app']
-                                }]
-                            });
-                        } catch (addError) {
-                            status.innerText = "❌ Не удалось добавить сеть Arc";
-                            return;
-                        }
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: '0x' + ARC_CHAIN_ID.toString(16),
+                                chainName: 'Arc Testnet',
+                                rpcUrls: [ARC_RPC],
+                                nativeCurrency: { name: 'ARC', symbol: 'ARC', decimals: 18 },
+                                blockExplorerUrls: ['https://testnet.arcscan.app']
+                            }]
+                        });
                     } else {
                         status.innerText = "❌ Не удалось переключить сеть";
                         return;
                     }
                 }
                 
-                // После переключения обновляем провайдер
                 provider = new ethers.providers.Web3Provider(window.ethereum, "any");
                 signer = provider.getSigner();
             }
@@ -126,10 +128,10 @@
             const addr = await signer.getAddress();
             
             document.getElementById('connectBtn').style.display = 'none';
-            status.innerHTML = `✅ Подключено: <b>${addr.slice(0,6)}...${addr.slice(-4)}</b> | Сеть: Arc`;
+            status.innerHTML = `✅ Подключено: <b>${addr.slice(0,6)}...${addr.slice(-4)}</b>`;
             
         } catch (e) {
-            status.innerText = "❌ Ошибка: " + (e.message || "Отклонено пользователем");
+            status.innerText = "❌ " + (e.message || "Отклонено");
         }
     }
 
@@ -171,7 +173,6 @@
                 const tx = await contract.claim(ids[i]);
                 await tx.wait();
             } catch (e) {
-                // Восстанавливаем кнопку при любой ошибке
                 status.innerHTML = `<span style="color:#f87171">❌ Ошибка на монете ${i+1}: ${e.message || e}</span>`;
                 btn.disabled = false;
                 btn.innerText = originalText;
