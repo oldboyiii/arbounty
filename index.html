@@ -6,25 +6,35 @@
     <title>AR Bounty</title>
     <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
     <style>
-        body { background: #0a0a0f; color: #fff; font-family: system-ui; text-align: center; padding: 20px; }
+        body { background: #0a0a0f; color: #fff; font-family: system-ui, sans-serif; text-align: center; padding: 20px; margin: 0; }
+        h1 { margin-bottom: 5px; }
         .coins { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; max-width: 500px; margin: 20px auto; }
-        .coin { width: 70px; height: 70px; border-radius: 50%; background: #34d399; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .coin.collected { opacity: 0.2; pointer-events: none; filter: grayscale(1); }
-        .btn-connect { background: #3a3a4a; color: #fff; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; margin: 10px; }
-        .btn-claim { background: #facc15; color: #000; border: none; padding: 14px 36px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; display: none; margin-top: 20px; }
-        #status { margin-top: 16px; color: #aaa; font-size: 14px; }
+        .coin { width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #34d399, #0e7a4b); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(52,211,153,0.3); }
+        .coin:hover { transform: scale(1.1); }
+        .coin.collected { opacity: 0.2; pointer-events: none; filter: grayscale(1); transform: scale(0.8); }
+        .btn-connect { background: #3a3a4a; color: #fff; border: 1px solid #555; padding: 12px 28px; border-radius: 8px; cursor: pointer; margin: 10px; font-size: 16px; }
+        .btn-connect:hover { background: #4a4a5a; }
+        .btn-claim { background: #facc15; color: #000; border: none; padding: 14px 36px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; display: none; margin-top: 20px; transition: 0.2s; }
+        .btn-claim:hover { background: #eab308; }
+        .btn-claim:disabled { opacity: 0.6; cursor: not-allowed; }
+        #status { margin-top: 16px; color: #aaa; font-size: 14px; min-height: 20px; }
+        .network-warn { color: #f87171; font-size: 13px; margin-top: 8px; display: none; }
     </style>
 </head>
 <body>
     <h1>AR Bounty</h1>
     <div>Собрано: <span id="score">0</span> / 10</div>
-    <button class="btn-connect" onclick="connectManually()">🦊 Подключить MetaMask</button>
+    <button class="btn-connect" id="connectBtn" onclick="connectManually()">🦊 Подключить MetaMask</button>
+    <div class="network-warn" id="netWarn">⚠️ Переключитесь на сеть Arc (ChainID 5042) в MetaMask!</div>
     <div class="coins" id="board"></div>
     <button class="btn-claim" id="claimBtn" onclick="claimAll()">Забрать всё!</button>
-    <div id="status">Нажмите кнопку выше для подключения</div>
+    <div id="status">Нажмите кнопку для подключения</div>
 
 <script>
     const CONTRACT = "0x5e3b652F8Ef29d50F32Ae2D69920651d10D0227b";
+    const ARC_CHAIN_ID = 5042;
+    const ARC_RPC = "https://rpc.testnet.arc.network";
+    
     const ABI = ["function claim(bytes32 bountyId) external"];
     const IDS = [
         "0x64656d6f5f303031000000000000000000000000000000000000000000000000",
@@ -39,7 +49,7 @@
         "0x64656d6f5f303130000000000000000000000000000000000000000000000000"
     ];
 
-    let signer, contract;
+    let signer, contract, provider;
     let collected = 0, ids = [];
 
     window.onload = function() {
@@ -55,46 +65,121 @@
     };
 
     async function connectManually() {
+        const status = document.getElementById('status');
+        const netWarn = document.getElementById('netWarn');
+        
         try {
-            if (!window.ethereum) throw new Error("MetaMask не найден");
+            if (!window.ethereum) {
+                status.innerHTML = "❌ MetaMask не найден. Установите расширение.";
+                return;
+            }
+            
+            // Запрашиваем доступ к аккаунтам
             await window.ethereum.request({ method: 'eth_requestAccounts' });
-            const provider = new ethers.providers.Web3Provider(window.ethereum);
+            
+            provider = new ethers.providers.Web3Provider(window.ethereum, "any");
             signer = provider.getSigner();
+            
+            // Проверяем сеть
+            const network = await provider.getNetwork();
+            if (network.chainId !== ARC_CHAIN_ID) {
+                status.innerText = "⚠️ Неверная сеть!";
+                netWarn.style.display = 'block';
+                
+                // Пробуем переключить пользователя
+                try {
+                    await window.ethereum.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: '0x' + ARC_CHAIN_ID.toString(16) }]
+                    });
+                } catch (switchError) {
+                    // Если сети нет в MetaMask — добавляем
+                    if (switchError.code === 4902) {
+                        try {
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: '0x' + ARC_CHAIN_ID.toString(16),
+                                    chainName: 'Arc Testnet',
+                                    rpcUrls: [ARC_RPC],
+                                    nativeCurrency: { name: 'ARC', symbol: 'ARC', decimals: 18 },
+                                    blockExplorerUrls: ['https://testnet.arcscan.app']
+                                }]
+                            });
+                        } catch (addError) {
+                            status.innerText = "❌ Не удалось добавить сеть Arc";
+                            return;
+                        }
+                    } else {
+                        status.innerText = "❌ Не удалось переключить сеть";
+                        return;
+                    }
+                }
+                
+                // После переключения обновляем провайдер
+                provider = new ethers.providers.Web3Provider(window.ethereum, "any");
+                signer = provider.getSigner();
+            }
+            
+            netWarn.style.display = 'none';
             contract = new ethers.Contract(CONTRACT, ABI, signer);
-            document.getElementById('status').innerText = "✅ Подключено! Теперь собирайте монеты.";
-            document.querySelector('.btn-connect').style.display = 'none';
+            const addr = await signer.getAddress();
+            
+            document.getElementById('connectBtn').style.display = 'none';
+            status.innerHTML = `✅ Подключено: <b>${addr.slice(0,6)}...${addr.slice(-4)}</b> | Сеть: Arc`;
+            
         } catch (e) {
-            document.getElementById('status').innerText = "❌ " + e.message;
+            status.innerText = "❌ Ошибка: " + (e.message || "Отклонено пользователем");
         }
     }
 
     function pick(el) {
-        if (!contract) { document.getElementById('status').innerText = "Сначала нажмите кнопку подключения!"; return; }
+        if (!contract) {
+            document.getElementById('status').innerText = "⛔ Сначала подключите MetaMask!";
+            return;
+        }
         if (el.classList.contains('collected')) return;
+        
         el.classList.add('collected');
         collected++;
         ids.push(el.dataset.id);
         document.getElementById('score').innerText = collected;
+        document.getElementById('status').innerText = `🪙 Монета ${collected} собрана`;
+        
         if (collected === 10) {
             document.getElementById('claimBtn').style.display = 'inline-block';
-            document.getElementById('status').innerText = "Все собраны! Жмите кнопку.";
+            document.getElementById('status').innerText = "🎯 Все собраны! Жмите кнопку.";
         }
     }
 
     async function claimAll() {
         const btn = document.getElementById('claimBtn');
-        btn.disabled = true; btn.innerText = "⏳...";
+        const status = document.getElementById('status');
+        
+        if (!contract) {
+            status.innerText = "⛔ Сначала подключите MetaMask!";
+            return;
+        }
+        
+        btn.disabled = true;
+        const originalText = btn.innerText;
+        btn.innerText = "⏳ Отправка...";
+        
         for (let i = 0; i < ids.length; i++) {
             try {
-                document.getElementById('status').innerText = `Клейм ${i+1}/10`;
+                status.innerText = `💰 Клейм ${i+1} из 10...`;
                 const tx = await contract.claim(ids[i]);
                 await tx.wait();
             } catch (e) {
-                document.getElementById('status').innerHTML = "❌ Ошибка: " + e.message;
-                btn.disabled = false; btn.innerText = "Забрать всё!"; return;
+                // Восстанавливаем кнопку при любой ошибке
+                status.innerHTML = `<span style="color:#f87171">❌ Ошибка на монете ${i+1}: ${e.message || e}</span>`;
+                btn.disabled = false;
+                btn.innerText = originalText;
+                return;
             }
         }
-        document.getElementById('status').innerHTML = "✅ ВСЕ 10 USDC ПОЛУЧЕНЫ!";
+        
+        status.innerHTML = "<span style='color:#34d399; font-size:16px;'>🎉 ВСЕ 10 USDC УСПЕШНО ПОЛУЧЕНЫ!</span>";
         btn.innerText = "✅ Готово!";
     }
 </script>
