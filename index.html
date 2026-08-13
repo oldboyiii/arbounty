@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Bounty</title>
-    <!-- НАДЕЖНЫЙ CDN вместо cdn.ethers.io -->
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <style>
         body { background: #0a0a0f; color: #fff; font-family: system-ui, sans-serif; text-align: center; padding: 20px; margin: 0; }
@@ -13,6 +12,7 @@
         .coin { width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #34d399, #0e7a4b); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(52,211,153,0.3); }
         .coin:hover { transform: scale(1.1); }
         .coin.collected { opacity: 0.2; pointer-events: none; filter: grayscale(1); transform: scale(0.8); }
+        .coin.claimed { background: #1e3a5f; opacity: 0.5; }
         .btn-connect { background: #3a3a4a; color: #fff; border: 1px solid #555; padding: 12px 28px; border-radius: 8px; cursor: pointer; margin: 10px; font-size: 16px; }
         .btn-connect:hover { background: #4a4a5a; }
         .btn-claim { background: #facc15; color: #000; border: none; padding: 14px 36px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; display: none; margin-top: 20px; transition: 0.2s; }
@@ -54,18 +54,17 @@
     let collected = 0, ids = [];
 
     window.onload = function() {
-        // Проверяем, загрузился ли ethers
         if (typeof ethers === 'undefined') {
             document.getElementById('status').innerHTML = "❌ Библиотека не загрузилась. Обновите страницу (Ctrl+F5).";
             return;
         }
-        
         const board = document.getElementById('board');
         IDS.forEach((id, i) => {
             const c = document.createElement('div');
             c.className = 'coin';
             c.innerText = i + 1;
             c.dataset.id = id;
+            c.dataset.index = i;
             c.onclick = function() { pick(this); };
             board.appendChild(c);
         });
@@ -76,7 +75,7 @@
         const netWarn = document.getElementById('netWarn');
         
         if (typeof ethers === 'undefined') {
-            status.innerText = "❌ Ошибка загрузки библиотеки. Обновите страницу.";
+            status.innerText = "❌ Ошибка загрузки библиотеки.";
             return;
         }
         
@@ -144,7 +143,7 @@
         
         el.classList.add('collected');
         collected++;
-        ids.push(el.dataset.id);
+        ids.push({id: el.dataset.id, index: parseInt(el.dataset.index)});
         document.getElementById('score').innerText = collected;
         document.getElementById('status').innerText = `🪙 Монета ${collected} собрана`;
         
@@ -167,20 +166,42 @@
         const originalText = btn.innerText;
         btn.innerText = "⏳ Отправка...";
         
+        let successCount = 0;
+        let skipCount = 0;
+        
         for (let i = 0; i < ids.length; i++) {
+            const {id, index} = ids[i];
             try {
-                status.innerText = `💰 Клейм ${i+1} из 10...`;
-                const tx = await contract.claim(ids[i]);
+                status.innerText = `💰 Клейм ${i+1} из 10 (монета ${index+1})...`;
+                const tx = await contract.claim(id);
                 await tx.wait();
+                successCount++;
+                // Помечаем визуально
+                const coinEl = document.querySelector(`.coin[data-index="${index}"]`);
+                if (coinEl) coinEl.classList.add('claimed');
             } catch (e) {
-                status.innerHTML = `<span style="color:#f87171">❌ Ошибка на монете ${i+1}: ${e.message || e}</span>`;
-                btn.disabled = false;
-                btn.innerText = originalText;
-                return;
+                const msg = e.message || e.toString();
+                // Если bounty уже занята или не существует — пропускаем
+                if (msg.includes('No bounty') || msg.includes('already claimed') || msg.includes('execution reverted')) {
+                    skipCount++;
+                    status.innerText = `⏭️ Монета ${index+1} уже занята, пропускаем...`;
+                    await new Promise(r => setTimeout(r, 1000)); // пауза чтобы прочитать
+                    continue;
+                } else {
+                    // Другая ошибка — останавливаемся
+                    status.innerHTML = `<span style="color:#f87171">❌ Ошибка на монете ${index+1}: ${msg.slice(0, 100)}</span>`;
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                    return;
+                }
             }
         }
         
-        status.innerHTML = "<span style='color:#34d399; font-size:16px;'>🎉 ВСЕ 10 USDC УСПЕШНО ПОЛУЧЕНЫ!</span>";
+        if (successCount > 0) {
+            status.innerHTML = `<span style='color:#34d399; font-size:16px;'>🎉 Получено ${successCount} USDC! (Пропущено занятых: ${skipCount})</span>`;
+        } else {
+            status.innerHTML = `<span style='color:#f87171'>⚠️ Все монеты уже заняты другими. Попробуйте другие ID.</span>`;
+        }
         btn.innerText = "✅ Готово!";
     }
 </script>
